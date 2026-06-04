@@ -1,6 +1,14 @@
 # Sala Inmersiva — Previsualizador (1ª persona + VR)
 
+![Preview web](assets/preview_web.png)
+
+![Preview TouchDesigner](assets/preview_touchdesigner.png)
+
 Web para previsualizar una sala inmersiva desde perspectiva en primera persona, con soporte WebXR/VR, herramientas de mapeo por pared y captura de video. El objetivo es tener un panorama realista de cómo se ven las obras/proyecciones dentro del espacio antes del montaje.
+
+## TouchDesigner (preview realtime)
+
+Además de la versión web, se incluye el proyecto de TouchDesigner `Preview_v1.toe` como alternativa de visualización en tiempo real. Es ideal para previsualizar sistemas realtime complejos o trabajar con archivos de video muy pesados.
 
 ## Qué permite hacer
 
@@ -142,4 +150,5 @@ Importante: en la mayoría de navegadores, WebXR requiere contexto seguro (HTTPS
 - `index.html`: aplicación completa (UI + lógica Three.js/WebXR).
 - `iniciar_servidor.bat`: levanta un server local en `:8000` y abre el navegador.
 - `pixelmap/`: recursos auxiliares (imágenes de referencia).
+- `Preview_v1.toe`: proyecto de TouchDesigner (preview en tiempo real).
 
