@@ -57,6 +57,10 @@ const SYNC_AUDIO_VOLUME_KEY = 'syncAudioVolume';
 let syncAudioVolume = 1;
 const PREVIEW_MODE_KEY = 'previewMode';
 let previewMode = 'grid';
+const PERF_MODE_KEY = 'perfMode';
+let perfModeSetting = 'auto'; // 'auto' | 'fluid' | 'high'
+let effectiveFluidMode = false;
+const wallRenderState = {};
 
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
 let velocity = new THREE.Vector3();
@@ -132,7 +136,7 @@ function init() {
     camera.rotation.order = 'YXZ';
 
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
     container.appendChild(renderer.domElement);
@@ -335,26 +339,136 @@ function updateSyncButtonsVisual() {
     if (audioBtn) audioBtn.classList.toggle('active-audio', !!syncedAudio && !!syncedAudio.src);
 }
 
-function syncPlay() {
-    syncState = 'play';
-    const baseTime = video?.currentTime || 0;
+function invalidateWallCache() {
+    Object.keys(wallRenderState).forEach((k) => { delete wallRenderState[k]; });
+}
+
+function getAllActiveVideos() {
+    const list = [];
+    const seen = new Set();
     forEachSyncedMedia((m) => {
-        if (!m || !(m instanceof HTMLVideoElement)) return;
+        if (m && m instanceof HTMLVideoElement && m.src && !seen.has(m)) {
+            seen.add(m);
+            list.push(m);
+        }
+    });
+    return list;
+}
+
+function seekVideoFast(v, targetTime) {
+    return new Promise((resolve) => {
+        if (!v || v.readyState < 1) { resolve(); return; }
+        if (Math.abs((v.currentTime || 0) - targetTime) < 0.03) { resolve(); return; }
+        let done = false;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            v.removeEventListener('seeked', finish);
+            resolve();
+        };
+        v.addEventListener('seeked', finish, { once: true });
+        try { v.currentTime = targetTime; } catch { finish(); }
+        setTimeout(finish, 350);
+    });
+}
+
+window.launchAllVideosSynced = async function(fromZero = true) {
+    const videos = getAllActiveVideos();
+    const targetTime = fromZero ? 0 : (video?.src ? (video.currentTime || 0) : (videos[0]?.currentTime || 0));
+
+    videos.forEach((v) => { try { v.pause(); } catch {} });
+    if (syncedAudio) { try { syncedAudio.pause(); } catch {} }
+
+    await Promise.all(videos.map((v) => seekVideoFast(v, targetTime)));
+    if (syncedAudio && syncedAudio.src) {
+        try { syncedAudio.currentTime = targetTime; } catch {}
+    }
+
+    syncState = 'play';
+    if (previewMode !== 'demo' && videos.length > 0) {
+        applyPreviewMode('demo');
+    }
+
+    videos.forEach((v) => {
         try {
-            m.currentTime = baseTime;
-            const p = m.play();
+            const p = v.play();
             if (p?.catch) p.catch(() => {});
         } catch {}
     });
-    if (syncedAudio) {
+    if (syncedAudio && syncedAudio.src) {
         try {
-            syncedAudio.currentTime = baseTime;
             const p = syncedAudio.play();
             if (p?.catch) p.catch(() => {});
         } catch {}
     }
+
+    invalidateWallCache();
+    renderWallCanvases(true);
     updateSyncButtonsVisual();
+};
+
+function syncPlay() {
+    window.launchAllVideosSynced(false);
 }
+
+function applyPerformanceResolution(isFluid) {
+    effectiveFluidMode = !!isFluid;
+    const scale = effectiveFluidMode ? 0.5 : 1;
+    Object.keys(wallCanvases).forEach((idx) => {
+        const wc = wallCanvases[idx];
+        if (!wc || !wc.baseWidth || !wc.baseHeight) return;
+        const targetW = Math.max(256, Math.round(wc.baseWidth * scale));
+        const targetH = Math.max(128, Math.round(wc.baseHeight * scale));
+        if (wc.canvas.width !== targetW || wc.canvas.height !== targetH) {
+            wc.canvas.width = targetW;
+            wc.canvas.height = targetH;
+        }
+        const tex = textures[Number(idx)];
+        if (tex) {
+            tex.anisotropy = effectiveFluidMode ? 2 : Math.min(8, renderer.capabilities.getMaxAnisotropy());
+            tex.needsUpdate = true;
+        }
+    });
+    if (renderer) {
+        const targetPR = effectiveFluidMode ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (renderer.getPixelRatio() !== targetPR) {
+            renderer.setPixelRatio(targetPR);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    }
+    invalidateWallCache();
+    renderWallCanvases(true);
+}
+
+function evaluateAutoPerformanceMode() {
+    const label = document.getElementById('perf-mode-label');
+    const btn = document.getElementById('btn-perf-mode');
+    if (perfModeSetting === 'fluid') {
+        if (label) label.textContent = 'Activo';
+        if (btn) btn.classList.add('active');
+        applyPerformanceResolution(true);
+        return;
+    }
+    if (perfModeSetting === 'high') {
+        if (label) label.textContent = 'Alta Calidad';
+        if (btn) btn.classList.remove('active');
+        applyPerformanceResolution(false);
+        return;
+    }
+    const activeVids = getAllActiveVideos();
+    const hasHeavy = activeVids.length >= 2 || activeVids.some((v) => (v.videoWidth || 0) >= 2560);
+    if (label) label.textContent = hasHeavy ? 'Auto (Fluido)' : 'Auto';
+    if (btn) btn.classList.toggle('active', hasHeavy);
+    applyPerformanceResolution(hasHeavy);
+}
+
+window.togglePerformanceMode = function() {
+    if (perfModeSetting === 'auto') perfModeSetting = 'fluid';
+    else if (perfModeSetting === 'fluid') perfModeSetting = 'high';
+    else perfModeSetting = 'auto';
+    try { localStorage.setItem(PERF_MODE_KEY, perfModeSetting); } catch {}
+    evaluateAutoPerformanceMode();
+};
 
 function syncPause() {
     syncState = 'pause';
@@ -573,7 +687,9 @@ function createImmersiveRoom() {
                canvas.height = 1024;
            }
            
-           const ctx = canvas.getContext('2d');
+           const baseWidth = canvas.width;
+           const baseHeight = canvas.height;
+           const ctx = canvas.getContext('2d', { alpha: false });
            const texture = new THREE.CanvasTexture(canvas);
            texture.colorSpace = THREE.SRGBColorSpace;
            texture.minFilter = THREE.LinearFilter;
@@ -583,7 +699,7 @@ function createImmersiveRoom() {
            texture.wrapT = THREE.RepeatWrapping;
            texture.center.set(0.5, 0.5);
            textures.push(texture);
-           wallCanvases[i] = { canvas, ctx };
+           wallCanvases[i] = { canvas, ctx, baseWidth, baseHeight };
            materials.push(new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide }));
         }
     }
@@ -645,10 +761,26 @@ function initUI() {
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        if (video._objectUrl) URL.revokeObjectURL(video._objectUrl);
         const url = URL.createObjectURL(file);
+        video._objectUrl = url;
+        video.preload = 'auto';
+        video.playsInline = true;
+        video.disablePictureInPicture = true;
         video.src = url;
         video.muted = false;
-        video.play();
+        video.load();
+        video.addEventListener('loadedmetadata', () => {
+            evaluateAutoPerformanceMode();
+        }, { once: true });
+        video.addEventListener('loadeddata', () => {
+            invalidateWallCache();
+            if (previewMode !== 'demo') applyPreviewMode('demo');
+            else renderWallCanvases(true);
+        }, { once: true });
+        if (previewMode !== 'demo') applyPreviewMode('demo');
+        const p = video.play();
+        if (p?.catch) p.catch(() => {});
     });
 }
 
@@ -667,11 +799,13 @@ window.updateWallSlotsUI = function(wallKey) {
     for (let ry = 0; ry < rows; ry++) {
         for (let rx = 0; rx < cols; rx++) {
             let vidId = `${wallKey}_${rx}_${ry}`;
+            const existingVid = slotVideos[vidId];
+            const btnText = existingVid?._fileName ? `✓ ${existingVid._fileName.slice(0, 14)}` : 'Seleccionar';
             html += `
                 <div style="flex: 1 1 calc(50% - 8px); min-width: 80px; background: #2a2a2a; border-radius: 8px; border: 1px solid #444; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: inset 0 2px 4px rgba(0,0,0,0.15);">
                     <span style="font-size:11px; color:#ccc; font-weight:700; margin-bottom: 8px; letter-spacing:0.5px;">(X${rx+1} Y${ry+1})</span>
-                    <label for="upload-${vidId}" class="panel-btn" style="width:100%; font-size:13px; padding:10px 0; margin:0; background:linear-gradient(180deg,#2f8dff 0%,#006eff 100%); border-radius:10px; border:1px solid rgba(255,255,255,0.16); cursor:pointer; font-weight:800; letter-spacing:0.5px; box-shadow:0 6px 16px rgba(0,110,255,0.35); display:flex; align-items:center; justify-content:center; text-align:center;" onmouseover="this.style.filter='brightness(1.08)';this.style.transform='translateY(-1px)'" onmouseout="this.style.filter='none';this.style.transform='none'">Seleccionar</label>
-                    <input type="file" id="upload-${vidId}" accept="video/mp4,video/webm,video/mov" style="display:none;" onchange="window.handleSlotUpload('${wallKey}', ${rx}, ${ry}, this)">
+                    <label id="label-${vidId}" for="upload-${vidId}" class="panel-btn" style="width:100%; font-size:13px; padding:10px 6px; margin:0; background:linear-gradient(180deg,#2f8dff 0%,#006eff 100%); border-radius:10px; border:1px solid rgba(255,255,255,0.16); cursor:pointer; font-weight:800; letter-spacing:0.5px; box-shadow:0 6px 16px rgba(0,110,255,0.35); display:flex; align-items:center; justify-content:center; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.filter='brightness(1.08)';this.style.transform='translateY(-1px)'" onmouseout="this.style.filter='none';this.style.transform='none'">${btnText}</label>
+                    <input type="file" id="upload-${vidId}" accept="video/*,.mp4,.webm,.mov,.m4v,video/quicktime" style="display:none;" onchange="window.handleSlotUpload('${wallKey}', ${rx}, ${ry}, this)">
                 </div>
             `;
         }
@@ -681,7 +815,7 @@ window.updateWallSlotsUI = function(wallKey) {
 };
 
 window.handleSlotUpload = function(wallKey, rx, ry, input) {
-    const file = input.files[0];
+    const file = input.files && input.files[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
     let vidId = `${wallKey}_${rx}_${ry}`;
@@ -690,10 +824,34 @@ window.handleSlotUpload = function(wallKey, rx, ry, input) {
         newVid.loop = true;
         newVid.muted = true;
         newVid.playsInline = true;
+        newVid.preload = 'auto';
+        newVid.disablePictureInPicture = true;
         slotVideos[vidId] = newVid;
     }
-    slotVideos[vidId].src = url;
-    slotVideos[vidId].play();
+    const vid = slotVideos[vidId];
+    if (vid._objectUrl) URL.revokeObjectURL(vid._objectUrl);
+    vid._objectUrl = url;
+    vid._fileName = file.name;
+    vid.src = url;
+    vid.load();
+    vid.addEventListener('loadedmetadata', () => {
+        evaluateAutoPerformanceMode();
+    }, { once: true });
+    vid.addEventListener('loadeddata', () => {
+        invalidateWallCache();
+        if (previewMode !== 'demo') applyPreviewMode('demo');
+        else renderWallCanvases(true);
+    }, { once: true });
+    vid.addEventListener('error', () => {
+        alert(`No se pudo cargar el video "${file.name}". Si es .mov en ProRes/HEVC, convertilo a .mp4 o .mov con codec H.264.`);
+    }, { once: true });
+
+    const lbl = document.getElementById(`label-${vidId}`);
+    if (lbl) lbl.textContent = `✓ ${file.name.slice(0, 14)}`;
+
+    if (previewMode !== 'demo') applyPreviewMode('demo');
+    const p = vid.play();
+    if (p?.catch) p.catch(() => {});
 };
 
 window.toggleAdminPanel = function() { document.getElementById('control-panel').classList.toggle('panel-hidden'); };
@@ -899,11 +1057,15 @@ window.applyGridFile = async function(file) {
     setGridStatusLoading('Actualizando…');
     try {
         const objectUrl = URL.createObjectURL(file);
-        if (file.type.startsWith('video/')) {
+        const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv)$/i.test(file.name);
+        const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name);
+        if (isVideo) {
             const v = document.createElement('video');
             v.loop = true;
             v.muted = true;
             v.playsInline = true;
+            v.preload = 'auto';
+            v.disablePictureInPicture = true;
             v.src = objectUrl;
             await new Promise((resolve, reject) => {
                 v.addEventListener('error', () => reject(new Error('Error cargando video')), { once: true });
@@ -912,7 +1074,8 @@ window.applyGridFile = async function(file) {
                 if (p?.catch) p.catch(() => {});
             });
             setWallOverride(wallKey, { kind: 'video', media: v, url: objectUrl, isObjectUrl: true });
-        } else if (file.type.startsWith('image/')) {
+            evaluateAutoPerformanceMode();
+        } else if (isImage) {
             const img = await loadImageFromUrl(objectUrl);
             setWallOverride(wallKey, { kind: 'image', media: img, url: objectUrl, isObjectUrl: true });
         } else {
@@ -1530,7 +1693,7 @@ function handleXRGamepad(delta) {
     }
 }
 
-function renderWallCanvases() {
+function renderWallCanvases(force = false) {
     Object.keys(WALLS).forEach(key => {
         const wallConf = WALLS[key];
         if (wallConf.index === 2) return; 
@@ -1541,29 +1704,47 @@ function renderWallCanvases() {
         const rows = Math.ceil(Math.max(1, wallConf.repY));
         const cellW = canvas.width / cols;
         const cellH = canvas.height / rows;
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         const override = wallOverrides[key];
         const hasOverride = !!override?.media && (override.kind !== 'video' || override.media.readyState >= 2);
-        
+        const hasMain = video && video.readyState >= 2;
+        const fallbackImg = wallFallbackImages[key];
+        const hasFallback = !!fallbackImg;
+
+        const prevState = wallRenderState[key];
+        const sig = `${previewMode}|${cols}x${rows}|${wallConf.mirrorS?1:0}|${wallConf.mirrorT?1:0}|${canvas.width}x${canvas.height}|${hasOverride?override.url:''}|${hasMain?video.src:''}|${hasFallback?1:0}`;
+
+        const cellSources = [];
+        const videoTimes = [];
         for (let ry = 0; ry < rows; ry++) {
             for (let rx = 0; rx < cols; rx++) {
-                let vidId = `${key}_${rx}_${ry}`;
+                const vidId = `${key}_${rx}_${ry}`;
                 const slotVid = slotVideos[vidId];
                 const hasSlot = slotVid && slotVid.readyState >= 2;
-                const hasMain = video && video.readyState >= 2;
-                const fallbackImg = wallFallbackImages[key];
-                const hasFallback = !!fallbackImg;
-
                 const source = (previewMode === 'grid')
                     ? (hasFallback ? fallbackImg : null)
                     : (hasSlot ? slotVid : (hasOverride ? override.media : (hasMain ? video : (hasFallback ? fallbackImg : null))));
+                cellSources.push(source);
+                if (source instanceof HTMLVideoElement) {
+                    videoTimes.push(`${vidId}:${source.src}:${source.currentTime.toFixed(4)}:${source.readyState}`);
+                }
+            }
+        }
+
+        const timeKey = videoTimes.join('|');
+        if (!force && prevState && prevState.sig === sig && prevState.timeKey === timeKey) {
+            return;
+        }
+        wallRenderState[key] = { sig, timeKey };
+
+        let idx = 0;
+        for (let ry = 0; ry < rows; ry++) {
+            for (let rx = 0; rx < cols; rx++) {
+                const source = cellSources[idx++];
+                const destX = rx * cellW;
+                const destY = ry * cellH;
                 if (source) {
                     ctx.save();
-                    let destX = rx * cellW;
-                    let destY = ry * cellH;
-                    
                     let flipCellX = wallConf.mirrorS && (rx % 2 !== 0);
                     let flipCellY = wallConf.mirrorT && (ry % 2 !== 0);
                     
@@ -1590,6 +1771,9 @@ function renderWallCanvases() {
                         }
                     }
                     ctx.restore();
+                } else {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(destX, destY, cellW, cellH);
                 }
             }
         }

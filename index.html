@@ -100,7 +100,7 @@
                     <div id="grid-editor-title" class="grid-editor-title"></div>
                     <div class="grid-editor-actions">
                         <label for="grid-file-input" class="grid-editor-btn primary">Cargar archivo</label>
-                        <input id="grid-file-input" type="file" accept="image/*,video/*">
+                        <input id="grid-file-input" type="file" accept="image/*,video/*,.mp4,.webm,.mov,.m4v,video/quicktime">
                         <input id="grid-url-input" class="grid-editor-input" type="url" placeholder="Pegar link (imagen o video)">
                         <button id="grid-url-apply" class="grid-editor-btn primary" type="button">Aplicar link</button>
                         <button id="grid-restore" class="grid-editor-btn" type="button">Restaurar</button>
@@ -174,7 +174,7 @@
             <div class="control-group">
                 <h3>Fuente de Video</h3>
                 <label for="video-upload" class="file-label">Cargar Video Local</label>
-                <input type="file" id="video-upload" accept="video/mp4,video/webm,video/mov">
+                <input type="file" id="video-upload" accept="video/*,.mp4,.webm,.mov,.m4v,video/quicktime">
                 <div class="volume-control">
                     <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.3">
                 </div>
@@ -230,6 +230,15 @@
                 </div>
                 <div id="wall-settings-container"></div>
             </div>
+        </div>
+        <div class="control-group" style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.12); padding-top:10px;">
+            <h3>Sincronización y Rendimiento</h3>
+            <button id="btn-menu-sync-launch" class="panel-btn btn-nav" type="button" onclick="launchAllVideosSynced(true)">▶ Lanzar Todos en Sincro (00:00)</button>
+            <div style="display:flex; gap:5px;">
+                <button class="panel-btn btn-secondary" type="button" onclick="syncPause()">⏸ Pausar</button>
+                <button class="panel-btn btn-secondary" type="button" onclick="syncStop()">⏹ Stop</button>
+            </div>
+            <button id="btn-perf-mode" class="panel-btn btn-secondary" type="button" onclick="togglePerformanceMode()">⚡ Modo Fluido: <span id="perf-mode-label">Auto</span></button>
         </div>
         <div class="hint">Presiona <b>'P'</b> para ocultar panel.</div>
     </div>
