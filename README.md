@@ -30,6 +30,18 @@ Si descargaste el proyecto y querés usarlo con un acceso directo en el Escritor
 2. Se instala en `%LOCALAPPDATA%\SalaInmersiva` (no requiere permisos de administrador) y crea el acceso directo **Sala Inmersiva 3D**.
 3. Para regenerar el instalador luego de modificar archivos, ejecutá `build_installer.ps1` en PowerShell.
 
+## Instalación y ejecución en macOS
+
+En macOS el equivalente al `.bat` de Windows son los archivos `.command` (doble click):
+
+1. **Instalación completa** (recomendado): ejecutá `instalar_mac.command` (instala en `~/Applications/SalaInmersiva`, crea `Sala Inmersiva 3D.app` en `~/Applications` y un acceso directo en el Escritorio).
+2. **Ejecución directa sin instalar**: ejecutá `iniciar_servidor_mac.command` (busca puerto libre `8000`–`8050`, usa `python3` / `python` / `ruby` / `php` y abre el navegador).
+3. Si descargaste el `.zip` desde GitHub y macOS no te deja abrirlo con doble click por permisos o Gatekeeper, ejecutá una sola vez en Terminal:
+   ```bash
+   chmod +x instalar_mac.command iniciar_servidor_mac.command
+   ./instalar_mac.command
+   ```
+
 ## Cómo ejecutar (local)
 
 Este proyecto no requiere build: es un `index.html` con Three.js vía CDN. Para que todo funcione correctamente (video, WebXR, etc.), se recomienda servirlo con un servidor local.
@@ -158,7 +170,8 @@ Importante: en la mayoría de navegadores, WebXR requiere contexto seguro (HTTPS
 - `index.html`: aplicación web y UI.
 - `assets/app.js` y `assets/styles.css`: lógica Three.js/WebXR, mapeo, sincronización y estilos.
 - `assets/server.ps1`: servidor HTTP local en PowerShell (fallback sin dependencias para Windows).
-- `iniciar_servidor.bat`: detecta puerto libre, levanta el servidor local (Python o PowerShell) y abre el navegador.
+- `iniciar_servidor.bat`: detecta puerto libre, levanta el servidor local (Python o PowerShell) y abre el navegador en Windows.
+- `iniciar_servidor_mac.command` / `instalar_mac.command`: lanzador e instalador nativo para macOS (doble click).
 - `build_installer.ps1` / `SalaInmersiva_Setup.exe`: script de compilación e instalador autocontenido para Windows.
 - `pixelmap/`: recursos auxiliares (imágenes de referencia).
 - `Preview_v1.toe`: proyecto de TouchDesigner (preview en tiempo real).
