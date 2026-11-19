@@ -410,6 +410,7 @@ window.launchAllVideosSynced = async function(fromZero = true) {
 function syncPlay() {
     window.launchAllVideosSynced(false);
 }
+window.syncPlay = syncPlay;
 
 function applyPerformanceResolution(isFluid) {
     effectiveFluidMode = !!isFluid;
@@ -481,6 +482,7 @@ function syncPause() {
     }
     updateSyncButtonsVisual();
 }
+window.syncPause = syncPause;
 
 function syncStop() {
     syncState = 'stop';
@@ -493,6 +495,7 @@ function syncStop() {
     }
     updateSyncButtonsVisual();
 }
+window.syncStop = syncStop;
 
 function updatePreviewModeButton() {
     const btn = document.getElementById('btn-preview-mode');
